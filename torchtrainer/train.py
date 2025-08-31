@@ -632,10 +632,28 @@ class DefaultTrainer:
                 
                 checkpoint = module_runner.state_dict()
 
-                # Save the checkpoint and a copy of it if required
-                if not args.suppress_checkpoint:                    
-                    torch.save(checkpoint, run_path/"checkpoint.pt")
-                    if args.copy_model_every and epoch%args.copy_model_every==0:
+                # Save checkpoints according to checkpoint_every (optional)
+                if not args.suppress_checkpoint:
+                    ce = args.checkpoint_every
+                    if ce == 0:  # original behavior: save every epoch
+                        save_main = True
+                    elif ce == -1:  # only last epoch
+                        save_main = (epoch == args.num_epochs - 1)
+                    elif ce > 0:
+                        if epoch == 0 and ce > args.num_epochs:
+                            raise ValueError(
+                                f"checkpoint_every={ce} must be <= num_epochs="
+                                f"{args.num_epochs} or -1"
+                            )
+                        save_main = (epoch % ce == 0)
+                    else:
+                        raise ValueError("checkpoint_every must be -1, 0 or >0")
+
+                    if save_main:
+                        torch.save(checkpoint, run_path/"checkpoint.pt")
+
+                    # Independent copies (not tied to main checkpoint frequency)
+                    if args.copy_model_every and epoch % args.copy_model_every == 0:
                         torch.save(checkpoint, run_path/"models"/f"checkpoint_{epoch}.pt")
 
                 if validate:
@@ -742,6 +760,13 @@ class DefaultTrainer:
                            metavar="N N N", help="Indices of the validation images to save")
         group.add_argument("--suppress_checkpoint", action="store_true",
                    help="Suppress model checkpoint saving at the end of each epoch.")
+        group.add_argument( "--checkpoint_every", type=int, default=0, metavar="N",
+            help=(
+                "Optional: frequency for main checkpoint. 0 (default) => save every epoch; "
+                "N>0 => save at epochs N,2N,...; -1 => save only at last epoch. Use "
+                "--suppress_checkpoint to fully disable checkpointing."
+            ),
+        )
         group.add_argument("--copy_model_every", type=int, default=0, metavar="N", 
                            help="Save a copy of the model every N epochs. If 0 (default) no "
                            "copies are saved. Has no effect if --suppress_checkpoint is True.")
